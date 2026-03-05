@@ -1,0 +1,166 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  MANAGER
+  TERMINAL_OPERATOR
+}
+
+enum TruckStatus {
+  IDLE
+  EN_ROUTE
+  LOADING
+  UNLOADING
+  MAINTENANCE
+}
+
+enum TripStatus {
+  PLANNED
+  EN_ROUTE
+  ARRIVED_ORIGIN
+  LOADING
+  DEPARTED_ORIGIN
+  ARRIVED_DEST
+  UNLOADING
+  COMPLETED
+  CANCELED
+}
+
+enum TerminalType {
+  OWN
+  PARTNER
+}
+
+enum AlertType {
+  LATE_RISK
+  DWELL_RISK
+  IDLE_TOO_LONG
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum TerminalEventType {
+  ARRIVED
+  LOADING_STARTED
+  LOADING_FINISHED
+  UNLOADING_STARTED
+  UNLOADING_FINISHED
+  DEPARTED
+}
+
+// ─── Models ──────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(MANAGER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Driver {
+  id        String  @id @default(cuid())
+  name      String
+  phone     String?
+  trips     Trip[]
+}
+
+model Truck {
+  id             String      @id @default(cuid())
+  code           String      @unique
+  status         TruckStatus @default(IDLE)
+  lastTerminalId String?
+  lastTerminal   Terminal?   @relation("TruckLastTerminal", fields: [lastTerminalId], references: [id])
+  lastLat        Float?
+  lastLng        Float?
+  updatedAt      DateTime    @updatedAt
+
+  trips          Trip[]
+  alerts         Alert[]
+  terminalEvents TerminalEvent[]
+}
+
+model Terminal {
+  id         String       @id @default(cuid())
+  name       String       @unique
+  type       TerminalType @default(OWN)
+  slaMinutes Int          @default(120)
+  lat        Float?
+  lng        Float?
+
+  trucksHere     Truck[]         @relation("TruckLastTerminal")
+  originTrips    Trip[]          @relation("OriginTerminal")
+  destTrips      Trip[]          @relation("DestTerminal")
+  alerts         Alert[]
+  terminalEvents TerminalEvent[]
+}
+
+model Trip {
+  id                    String     @id @default(cuid())
+  code                  String     @unique
+  originTerminalId      String
+  originTerminal        Terminal   @relation("OriginTerminal", fields: [originTerminalId], references: [id])
+  destinationTerminalId String
+  destinationTerminal   Terminal   @relation("DestTerminal", fields: [destinationTerminalId], references: [id])
+  truckId               String?
+  truck                 Truck?     @relation(fields: [truckId], references: [id])
+  driverId              String?
+  driver                Driver?    @relation(fields: [driverId], references: [id])
+  status                TripStatus @default(PLANNED)
+  plannedStartAt        DateTime
+  plannedEtaAt          DateTime
+  actualStartAt         DateTime?
+  actualEtaAt           DateTime?
+  distanceKm            Float?
+  cargoWeightKg         Float?
+  rateIncome            Float      @default(0)
+  fuelCostEst           Float      @default(0)
+  otherCostEst          Float      @default(0)
+  marginComputed        Float      @default(0)
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  alerts         Alert[]
+  terminalEvents TerminalEvent[]
+}
+
+model TerminalEvent {
+  id         String            @id @default(cuid())
+  tripId     String
+  trip       Trip              @relation(fields: [tripId], references: [id])
+  terminalId String
+  terminal   Terminal          @relation(fields: [terminalId], references: [id])
+  truckId    String?
+  truck      Truck?            @relation(fields: [truckId], references: [id])
+  type       TerminalEventType
+  at         DateTime          @default(now())
+}
+
+model Alert {
+  id             String        @id @default(cuid())
+  type           AlertType
+  severity       AlertSeverity @default(WARNING)
+  truckId        String?
+  truck          Truck?        @relation(fields: [truckId], references: [id])
+  tripId         String?
+  trip           Trip?         @relation(fields: [tripId], references: [id])
+  terminalId     String?
+  terminal       Terminal?     @relation(fields: [terminalId], references: [id])
+  message        String
+  createdAt      DateTime      @default(now())
+  acknowledgedAt DateTime?
+}
