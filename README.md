@@ -166,42 +166,148 @@ Login quick-fill buttons are available on the login page.
 
 ---
 
-## Staging Deployment (Docker Compose)
+## Deploying to the Internet (Railway — free tier)
 
-All services (Postgres, Redis, backend, frontend/nginx) run in Docker.
+Railway hosts the full stack for free. You will get two public URLs:
+one for the backend and one for the frontend. Everything below takes
+about 10–15 minutes on the first deploy.
 
-### 1. Copy and fill in staging secrets
+---
+
+### Step 1 — Create a Railway account
+
+1. Go to **https://railway.app**
+2. Click **Login** → **Login with GitHub**
+3. Authorize Railway to access your GitHub account
+
+---
+
+### Step 2 — Create a new project
+
+1. On the Railway dashboard click **New Project**
+2. Choose **Deploy from GitHub repo**
+3. Find and select **Logist-AI** (it is the repo at `alex-tiutiunyk/Logist-AI`)
+4. When Railway asks which service to deploy, click **Add variables later** — you will configure everything manually below
+
+Railway creates an empty project. You will now add four services to it.
+
+---
+
+### Step 3 — Add PostgreSQL
+
+1. Inside the project click **+ New** → **Database** → **Add PostgreSQL**
+2. Railway spins up a Postgres instance automatically
+3. Click the Postgres service → **Variables** tab → copy the value of **DATABASE_URL** (you will need it in Step 6)
+
+---
+
+### Step 4 — Add Redis
+
+1. Click **+ New** → **Database** → **Add Redis**
+2. Click the Redis service → **Variables** tab → copy the value of **REDIS_URL**
+
+---
+
+### Step 5 — Add the backend service
+
+1. Click **+ New** → **GitHub Repo** → select **Logist-AI** again
+2. Railway will detect the repo. Before it builds, change the **Root Directory** to `/` and set the **Dockerfile Path** to `apps/backend/Dockerfile`
+   - Click the service → **Settings** tab
+   - **Root Directory**: leave empty (repo root)
+   - **Dockerfile**: `apps/backend/Dockerfile`
+3. Click **Settings** → **Networking** → **Generate Domain** — Railway gives you a public URL like `https://logist-backend-xxxx.up.railway.app`. **Copy this URL.**
+
+---
+
+### Step 6 — Set backend environment variables
+
+Click the backend service → **Variables** tab → add these one by one:
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | paste the value you copied from the Postgres service |
+| `REDIS_URL` | paste the value you copied from the Redis service |
+| `JWT_SECRET` | any long random string, e.g. `my_super_secret_key_change_this_32chars` |
+| `JWT_EXPIRES_IN` | `8h` |
+| `PORT` | `3000` |
+| `FRONTEND_URL` | leave blank for now — you will fill this after Step 8 |
+
+Click **Deploy** (or it auto-deploys after saving variables).
+
+---
+
+### Step 7 — Add the frontend service
+
+1. Click **+ New** → **GitHub Repo** → select **Logist-AI** again (third time)
+2. Click the new service → **Settings** tab:
+   - **Dockerfile**: `apps/frontend/Dockerfile`
+3. Click **Settings** → **Networking** → **Generate Domain** — copy your frontend URL, e.g. `https://logist-frontend-xxxx.up.railway.app`
+
+---
+
+### Step 8 — Set frontend build variables
+
+Click the frontend service → **Variables** tab → add:
+
+| Variable | Value |
+|---|---|
+| `VITE_API_URL` | `/api` |
+| `VITE_WS_URL` | the backend URL from Step 5, e.g. `https://logist-backend-xxxx.up.railway.app` |
+
+Then go **back to the backend service** → **Variables** → set:
+
+| Variable | Value |
+|---|---|
+| `FRONTEND_URL` | the frontend URL from Step 7, e.g. `https://logist-frontend-xxxx.up.railway.app` |
+
+Save — both services will redeploy automatically.
+
+---
+
+### Step 9 — Seed demo data (first deploy only)
+
+Wait for the backend to finish deploying (green status), then:
+
+1. Click the backend service → **Settings** → **Shell** (or open the Railway CLI)
+2. Run inside the container:
 
 ```bash
-cp .env.staging.example .env.staging
-# Set: POSTGRES_PASSWORD, JWT_SECRET, FRONTEND_URL (e.g. http://<server-ip>)
+node -e "
+const { execSync } = require('child_process');
+execSync('npx ts-node --require tsconfig-paths/register prisma/seed.ts', { stdio: 'inherit' });
+"
 ```
 
-### 2. Build and start
+> If the shell is not available on your plan, you can seed by temporarily setting `DATABASE_URL` in your local `.env` to the Railway Postgres URL and running `pnpm db:seed` from your machine.
 
-```bash
-docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --build
-```
+---
 
-### 3. Seed demo data (first deploy only)
+### Step 10 — Open the app
 
-```bash
-docker compose -f docker-compose.staging.yml exec backend \
-  node -e "const {PrismaClient}=require('@prisma/client'); console.log('use pnpm db:seed locally')"
-```
-
-> For the seed, run `pnpm db:seed` locally pointing at the staging DB, or exec into the container and run the seed script.
-
-### Architecture
+Go to the frontend URL from Step 7, e.g.:
 
 ```
-Browser → nginx:80
-           ├── /api/*       → backend:3000  (strips /api prefix)
-           ├── /socket.io/* → backend:3000  (WebSocket)
-           └── /*           → Vue SPA
+https://logist-frontend-xxxx.up.railway.app
 ```
 
-Prisma migrations run automatically on every container start before NestJS boots.
+Log in with:
+
+| Email | Password |
+|---|---|
+| `admin@demo.com` | `admin123` |
+| `manager@demo.com` | `manager123` |
+| `operator@demo.com` | `operator123` |
+
+---
+
+### Troubleshooting
+
+| Problem | Solution |
+|---|---|
+| Backend shows "Application failed to respond" | Check the **Logs** tab — likely a missing env variable |
+| Frontend shows blank page or 502 on `/api` | Make sure `VITE_WS_URL` points to the backend Railway URL (not localhost) and redeploy |
+| Prisma migration error on startup | The backend runs `prisma migrate deploy` on boot — check logs for the exact error |
+| CORS error in browser console | Make sure `FRONTEND_URL` on the backend exactly matches your frontend Railway URL (no trailing slash) |
 
 ---
 
