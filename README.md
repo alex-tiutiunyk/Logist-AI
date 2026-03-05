@@ -166,6 +166,45 @@ Login quick-fill buttons are available on the login page.
 
 ---
 
+## Staging Deployment (Docker Compose)
+
+All services (Postgres, Redis, backend, frontend/nginx) run in Docker.
+
+### 1. Copy and fill in staging secrets
+
+```bash
+cp .env.staging.example .env.staging
+# Set: POSTGRES_PASSWORD, JWT_SECRET, FRONTEND_URL (e.g. http://<server-ip>)
+```
+
+### 2. Build and start
+
+```bash
+docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --build
+```
+
+### 3. Seed demo data (first deploy only)
+
+```bash
+docker compose -f docker-compose.staging.yml exec backend \
+  node -e "const {PrismaClient}=require('@prisma/client'); console.log('use pnpm db:seed locally')"
+```
+
+> For the seed, run `pnpm db:seed` locally pointing at the staging DB, or exec into the container and run the seed script.
+
+### Architecture
+
+```
+Browser → nginx:80
+           ├── /api/*       → backend:3000  (strips /api prefix)
+           ├── /socket.io/* → backend:3000  (WebSocket)
+           └── /*           → Vue SPA
+```
+
+Prisma migrations run automatically on every container start before NestJS boots.
+
+---
+
 ## API Reference
 
 ### Authentication
